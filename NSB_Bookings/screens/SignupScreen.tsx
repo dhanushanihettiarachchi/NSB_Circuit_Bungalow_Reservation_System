@@ -1,7 +1,10 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, Image } from "react-native";
+import {
+  View, Text, TextInput, TouchableOpacity, StyleSheet, Image, Alert, ActivityIndicator,
+} from "react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "../App";
+import { API_BASE } from "../src/services/config";
 
 const NSB_BLUE = "#060340";
 const NSB_GOLD = "#FDB913";
@@ -10,13 +13,16 @@ type Props = NativeStackScreenProps<RootStackParamList, "Signup">;
 
 export default function SignupScreen({ navigation }: Props) {
   const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
+  const [lastName,  setLastName]  = useState("");
+  const [email,     setEmail]     = useState("");
+  const [password,  setPassword]  = useState("");
+  const [confirm,   setConfirm]   = useState("");
   const [showPwd, setShowPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+
+  // form error shown under the fields
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const validate = () => {
     if (!firstName.trim() || !lastName.trim() || !email.trim() || !password || !confirm)
@@ -28,16 +34,54 @@ export default function SignupScreen({ navigation }: Props) {
     return null;
   };
 
-  const onSubmit = () => {
-    const v = validate();
-    if (v) {
-      setError(v);
-      return;
-    }
+  const onSubmit = async () => {
+    // clear old error
     setError(null);
-    // later: save with AsyncStorage or backend
-    navigation.navigate("Login");
+
+    const v = validate();
+    if (v) { setError(v); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName:  lastName.trim(),
+          email:     email.trim().toLowerCase(),
+          password
+        })
+      });
+
+      // Duplicate email — show friendly message under the form
+      if (res.status === 409) {
+        setError("This email is already registered. Try logging in.");
+        return;
+      }
+
+      if (!res.ok) {
+        // Try to read server error message if available
+        let msg = "Signup failed. Please try again.";
+        try {
+          const j = await res.json();
+          if (j?.message) msg = j.message;
+        } catch {}
+        setError(msg);
+        return;
+      }
+
+      // Success
+      Alert.alert("Account created successfully", "You can now log in.");
+      navigation.navigate("Login");
+    } catch (e: any) {
+      setError(e?.message ?? "Network error. Check Wi-Fi / Firewall / API URL.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const inputErrorStyle = error ? { borderColor: "#FF6B6B" } : null;
 
   return (
     <View style={styles.container}>
@@ -54,9 +98,9 @@ export default function SignupScreen({ navigation }: Props) {
       <View style={styles.field}>
         <Text style={styles.label}>First Name</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputErrorStyle]}
           value={firstName}
-          onChangeText={setFirstName}
+          onChangeText={(t)=>{ setFirstName(t); if (error) setError(null); }}
           placeholder="Enter first name"
           placeholderTextColor="rgba(255,255,255,0.6)"
         />
@@ -66,9 +110,9 @@ export default function SignupScreen({ navigation }: Props) {
       <View style={styles.field}>
         <Text style={styles.label}>Last Name</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputErrorStyle]}
           value={lastName}
-          onChangeText={setLastName}
+          onChangeText={(t)=>{ setLastName(t); if (error) setError(null); }}
           placeholder="Enter last name"
           placeholderTextColor="rgba(255,255,255,0.6)"
         />
@@ -78,9 +122,9 @@ export default function SignupScreen({ navigation }: Props) {
       <View style={styles.field}>
         <Text style={styles.label}>Email</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, inputErrorStyle]}
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(t)=>{ setEmail(t); if (error) setError(null); }}
           placeholder="name@nsb.lk"
           placeholderTextColor="rgba(255,255,255,0.6)"
           keyboardType="email-address"
@@ -93,9 +137,9 @@ export default function SignupScreen({ navigation }: Props) {
         <Text style={styles.label}>Password</Text>
         <View style={styles.passwordRow}>
           <TextInput
-            style={[styles.input, styles.flex]}
+            style={[styles.input, styles.flex, inputErrorStyle]}
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(t)=>{ setPassword(t); if (error) setError(null); }}
             placeholder="Enter password"
             placeholderTextColor="rgba(255,255,255,0.6)"
             secureTextEntry={!showPwd}
@@ -111,9 +155,9 @@ export default function SignupScreen({ navigation }: Props) {
         <Text style={styles.label}>Confirm Password</Text>
         <View style={styles.passwordRow}>
           <TextInput
-            style={[styles.input, styles.flex]}
+            style={[styles.input, styles.flex, inputErrorStyle]}
             value={confirm}
-            onChangeText={setConfirm}
+            onChangeText={(t)=>{ setConfirm(t); if (error) setError(null); }}
             placeholder="Re-enter password"
             placeholderTextColor="rgba(255,255,255,0.6)"
             secureTextEntry={!showConfirmPwd}
@@ -126,8 +170,16 @@ export default function SignupScreen({ navigation }: Props) {
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <TouchableOpacity style={styles.primaryBtn} onPress={onSubmit}>
-        <Text style={styles.primaryBtnText}>Create Account</Text>
+      <TouchableOpacity
+        style={[styles.primaryBtn, loading && { opacity: 0.7 }]}
+        onPress={onSubmit}
+        disabled={loading}
+      >
+        {loading ? (
+          <ActivityIndicator color={NSB_BLUE} />
+        ) : (
+          <Text style={styles.primaryBtnText}>Create Account</Text>
+        )}
       </TouchableOpacity>
 
       <TouchableOpacity style={styles.linkBtn} onPress={() => navigation.goBack()}>
